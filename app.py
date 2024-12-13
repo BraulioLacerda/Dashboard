@@ -112,13 +112,97 @@ def server(input, output, session):
                 title = input.indicador() +  ": componentes da série",
                 x = "",
                 y = "",
-                caption = "Dados BCB/IBGE | Elaboração: LIMFIE",
+                color = "",
+                caption = "Dados: FGV/IBGE | Elaboração: LIMFIE",
             ) + 
             p9.theme(
                 legend_position = "bottom"
 
             )
 
+        )
+        return grafico
+    
+    @reactive.calc
+    def dados_sazonal():
+
+        ano = input.ano()
+        dt_inicial = input.periodo()[0]
+        dt_final = input.periodo()[1]
+
+        dados_ano = (
+            dados
+            .assign(
+                mes = lambda x: pd.Categorical (
+                    x.Date.dt.month_name(),
+                    categories = x.Date.dt.month_name().unique(),
+                    ) 
+                )
+            .query("Date.dt.year == @ano")
+            .rename(columns = {input.indicador(): "indicador"})
+            .filter(["mes","indicador"])
+            .dropna()
+            .set_index ("mes")
+        )
+
+        dados_estatistica = (
+            dados
+            .query ("Date >= @dt_inicial and Date <= @dt_final")
+            .assign(
+                mes = lambda x: pd.Categorical (
+                    x.Date.dt.month_name(),
+                    categories = x.Date.dt.month_name().unique(),
+                    ) 
+                )
+            .rename(columns = {input.indicador(): "indicador"})
+            .filter(["mes","indicador"])
+            .groupby("mes")
+            .indicador
+            .agg(
+                q25 = lambda x: x.quantile(0.25),
+                Mediana = lambda x: x.median(),
+                q75 = lambda x: x.quantile(0.75)
+            )
+        )
+
+        df_sazonal = (
+            dados_ano
+            .join(dados_estatistica, how = "outer")
+            .rename_axis("mes", axis = "index")
+            .reset_index()
+            .rename(columns = {"indicador": str(input.ano())})
+            .melt(id_vars = ["mes", "q25", "q75"], var_name = "variavel", value_name = "valor")
+        )
+
+        return df_sazonal
+    
+    @render.plot
+    def sazonal():
+
+        grafico = (
+            p9.ggplot(dados_sazonal())+
+            p9.aes(
+                x = "mes",
+                y = "valor", 
+                color = "variavel",
+                group = "variavel",
+                ymin = "q25",
+                ymax = "q75"
+                ) +
+            p9.geom_ribbon(color = "none", fill = "black" , alpha = 0.25) +
+            p9.geom_line(size = 1) +
+            p9.labs(
+                title = input.indicador() + ": padrão sazonal",
+                subtitle = "Aréa sombreada = Intervalor interquantil",
+                y = "",
+                x = "",
+                color = "",
+                caption = "Dados: FGV/IBGE | Elaboração: LIMFIE",
+                
+            ) +
+            p9.theme(
+                legend_position = "bottom"
+            )
         )
         return grafico
 
